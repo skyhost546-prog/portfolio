@@ -884,7 +884,7 @@
     height:0 !important;
     opacity:0 !important;
   }
-  body{ top:0 !important; position:static !important; }
+  body{ top:0 !important; }
   body.locked{ top:0 !important; }
   .skiptranslate iframe{ display:none !important; visibility:hidden !important; height:0 !important; }
   #google_translate_element{ display:none !important; }
@@ -1338,13 +1338,35 @@
 <script>
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  function endWelcome(){
-    document.getElementById('welcome').classList.add('hide');
-    document.body.classList.remove('locked');
-    document.getElementById('mainNav').classList.add('in');
-    document.getElementById('hero').classList.add('hero-anim');
-  }
-  if(reducedMotion){ endWelcome(); } else { setTimeout(endWelcome, 2500); }
+  /* Welcome overlay: robust dismissal that can never get stuck.
+     - Auto-dismisses after 2.5s
+     - Also dismisses immediately on any click/tap/key, so it's never blocking
+     - Wrapped so a later error elsewhere in the page can't prevent unlocking */
+  (function welcomeGate(){
+    let dismissed = false;
+    function endWelcome(){
+      if(dismissed) return;
+      dismissed = true;
+      const w = document.getElementById('welcome');
+      if(w) w.classList.add('hide');
+      document.body.classList.remove('locked');
+      const nav = document.getElementById('mainNav');
+      if(nav) nav.classList.add('in');
+      const hero = document.getElementById('hero');
+      if(hero) hero.classList.add('hero-anim');
+    }
+    if(reducedMotion){
+      endWelcome();
+    } else {
+      setTimeout(endWelcome, 2500);
+      const w = document.getElementById('welcome');
+      if(w) w.addEventListener('click', endWelcome);
+      document.addEventListener('keydown', endWelcome, { once:true });
+    }
+    // Absolute failsafe: no matter what, never leave the page locked past 4s
+    setTimeout(endWelcome, 4000);
+    window.__endWelcome = endWelcome;
+  })();
 
   const reveals = document.querySelectorAll('.reveal');
   const io = new IntersectionObserver((entries) => {

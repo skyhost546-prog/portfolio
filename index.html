@@ -873,6 +873,21 @@
     .status-widget{ font-size:10.5px; padding:7px 12px; gap:7px; top:10px; right:10px; }
     .status-widget .sw-date{ display:none; }
   }
+
+  /* ================= FORCE GOOGLE TRANSLATE TO STAY FULLY INVISIBLE ================= */
+  .goog-te-banner-frame, .goog-te-banner-frame.skiptranslate,
+  #goog-gt-tt, .goog-te-balloon-frame,
+  .goog-tooltip, .goog-tooltip:hover,
+  .goog-text-highlight{
+    display:none !important;
+    visibility:hidden !important;
+    height:0 !important;
+    opacity:0 !important;
+  }
+  body{ top:0 !important; position:static !important; }
+  body.locked{ top:0 !important; }
+  .skiptranslate iframe{ display:none !important; visibility:hidden !important; height:0 !important; }
+  #google_translate_element{ display:none !important; }
 </style>
 </head>
 <body class="locked">
@@ -950,7 +965,6 @@
         <strong>INCONNU BOY — Dawens</strong>
       </div>
     </div>
-    <span class="eyebrow"><span class="pulse" aria-hidden="true"></span> Available for new projects</span>
     <h1>
       <span class="line">Full Stack Developer</span>
       <span class="line accent-text">building tools people rely on.</span>
@@ -1707,6 +1721,19 @@
       const browserLang = (navigator.language || navigator.userLanguage || 'en').slice(0,2).toLowerCase();
       if(browserLang === 'en') return;
 
+      // Keep Google's injected banner/iframe/body-shift permanently neutralized,
+      // no matter when it tries to inject itself.
+      function scrubGoogleUI(){
+        document.body.style.top = '0px';
+        document.body.classList.remove('translated-ltr', 'translated-rtl');
+        document.documentElement.style.top = '0px';
+        const banner = document.querySelector('.goog-te-banner-frame, iframe.skiptranslate');
+        if(banner) banner.style.display = 'none';
+      }
+      const scrubInterval = setInterval(scrubGoogleUI, 400);
+      setTimeout(() => clearInterval(scrubInterval), 15000);
+      new MutationObserver(scrubGoogleUI).observe(document.body, { attributes:true, attributeFilter:['style','class'] });
+
       window.googleTranslateElementInit = function(){
         new google.translate.TranslateElement({
           pageLanguage: 'en',
@@ -1725,6 +1752,7 @@
               select.value = target;
               select.dispatchEvent(new Event('change'));
             }
+            scrubGoogleUI();
           }
         }, 250);
         setTimeout(() => clearInterval(trySwitch), 8000);

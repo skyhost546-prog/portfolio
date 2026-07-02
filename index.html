@@ -9,7 +9,6 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <style>
   :root{
     --bg: #060608;
@@ -892,6 +891,37 @@
 </head>
 <body class="locked">
 
+<!-- ===================== INDEPENDENT FAILSAFE UNLOCK =====================
+     Runs immediately, has zero dependencies on anything below it.
+     Guarantees the page is never permanently stuck on the welcome screen,
+     even if Leaflet, Google Fonts, or any other external script fails
+     to load or throws an error. -->
+<script>
+  (function(){
+    var unlocked = false;
+    function forceUnlock(){
+      if(unlocked) return;
+      unlocked = true;
+      var w = document.getElementById('welcome');
+      if(w){
+        w.style.transition = 'opacity 0.5s ease, visibility 0.5s';
+        w.style.opacity = '0';
+        w.style.visibility = 'hidden';
+        w.style.pointerEvents = 'none';
+      }
+      document.body.classList.remove('locked');
+      var nav = document.getElementById('mainNav');
+      if(nav) nav.classList.add('in');
+      var hero = document.getElementById('hero');
+      if(hero) hero.classList.add('hero-anim');
+    }
+    // Hard failsafe: no matter what happens elsewhere on the page,
+    // unlock after 3.5s at the very latest.
+    setTimeout(forceUnlock, 3500);
+    window.__forceUnlock = forceUnlock;
+  })();
+</script>
+
 <div class="cursor-dot" id="cursorDot" aria-hidden="true"></div>
 <div class="cursor-ring" id="cursorRing" aria-hidden="true"></div>
 
@@ -1335,154 +1365,170 @@
 
 <div id="google_translate_element" style="position:absolute; width:1px; height:1px; overflow:hidden; opacity:0; pointer-events:none; left:-9999px;"></div>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script>
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  /* Welcome overlay: robust dismissal that can never get stuck.
-     - Auto-dismisses after 2.5s
-     - Also dismisses immediately on any click/tap/key, so it's never blocking
-     - Wrapped so a later error elsewhere in the page can't prevent unlocking */
-  (function welcomeGate(){
-    let dismissed = false;
-    function endWelcome(){
-      if(dismissed) return;
-      dismissed = true;
-      const w = document.getElementById('welcome');
-      if(w) w.classList.add('hide');
-      document.body.classList.remove('locked');
-      const nav = document.getElementById('mainNav');
-      if(nav) nav.classList.add('in');
-      const hero = document.getElementById('hero');
-      if(hero) hero.classList.add('hero-anim');
-    }
-    if(reducedMotion){
-      endWelcome();
-    } else {
-      setTimeout(endWelcome, 2500);
-      const w = document.getElementById('welcome');
-      if(w) w.addEventListener('click', endWelcome);
-      document.addEventListener('keydown', endWelcome, { once:true });
-    }
-    // Absolute failsafe: no matter what, never leave the page locked past 4s
-    setTimeout(endWelcome, 4000);
-    window.__endWelcome = endWelcome;
-  })();
-
-  const reveals = document.querySelectorAll('.reveal');
-  const io = new IntersectionObserver((entries) => {
-    entries.forEach(e => { if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); } });
-  }, { threshold: 0.15 });
-  reveals.forEach(el => io.observe(el));
-
-  const magnets = document.querySelectorAll('[data-magnetic]');
-  const isFinePointer = window.matchMedia('(pointer: fine)').matches;
-  if(isFinePointer && !reducedMotion){
-    magnets.forEach(m => {
-      const btn = m.querySelector('a');
-      if(!btn) return;
-      m.addEventListener('mousemove', (e) => {
-        const rect = m.getBoundingClientRect();
-        const x = e.clientX - rect.left - rect.width/2;
-        const y = e.clientY - rect.top - rect.height/2;
-        btn.style.transform = `translate(${x*0.25}px, ${y*0.4}px)`;
-      });
-      m.addEventListener('mouseleave', () => { btn.style.transform = 'translate(0,0)'; });
-    });
+  /* Welcome overlay: same nice staged reveal as before, but now it's purely
+     cosmetic — the independent failsafe script at the very top of <body>
+     already guarantees the page can never stay locked, no matter what
+     happens in this block or anywhere else on the page. */
+  try {
+    (function welcomeGate(){
+      let dismissed = false;
+      function endWelcome(){
+        if(dismissed) return;
+        dismissed = true;
+        if(window.__forceUnlock){ window.__forceUnlock(); return; }
+        const w = document.getElementById('welcome');
+        if(w) w.classList.add('hide');
+        document.body.classList.remove('locked');
+        const nav = document.getElementById('mainNav');
+        if(nav) nav.classList.add('in');
+        const hero = document.getElementById('hero');
+        if(hero) hero.classList.add('hero-anim');
+      }
+      if(reducedMotion){
+        endWelcome();
+      } else {
+        setTimeout(endWelcome, 2500);
+        const w = document.getElementById('welcome');
+        if(w) w.addEventListener('click', endWelcome);
+        document.addEventListener('keydown', endWelcome, { once:true });
+      }
+    })();
+  } catch(err){
+    if(window.__forceUnlock) window.__forceUnlock();
   }
 
-  document.querySelectorAll('[data-tilt]').forEach(card => {
-    card.addEventListener('mousemove', (e) => {
-      const rect = card.getBoundingClientRect();
-      card.style.setProperty('--mx', (e.clientX - rect.left) + 'px');
-      card.style.setProperty('--my', (e.clientY - rect.top) + 'px');
+  try {
+    const reveals = document.querySelectorAll('.reveal');
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach(e => { if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); } });
+    }, { threshold: 0.15 });
+    reveals.forEach(el => io.observe(el));
+  } catch(err){}
+
+  try {
+    const magnets = document.querySelectorAll('[data-magnetic]');
+    const isFinePointer = window.matchMedia('(pointer: fine)').matches;
+    if(isFinePointer && !reducedMotion){
+      magnets.forEach(m => {
+        const btn = m.querySelector('a');
+        if(!btn) return;
+        m.addEventListener('mousemove', (e) => {
+          const rect = m.getBoundingClientRect();
+          const x = e.clientX - rect.left - rect.width/2;
+          const y = e.clientY - rect.top - rect.height/2;
+          btn.style.transform = `translate(${x*0.25}px, ${y*0.4}px)`;
+        });
+        m.addEventListener('mouseleave', () => { btn.style.transform = 'translate(0,0)'; });
+      });
+    }
+  } catch(err){}
+
+  try {
+    document.querySelectorAll('[data-tilt]').forEach(card => {
+      card.addEventListener('mousemove', (e) => {
+        const rect = card.getBoundingClientRect();
+        card.style.setProperty('--mx', (e.clientX - rect.left) + 'px');
+        card.style.setProperty('--my', (e.clientY - rect.top) + 'px');
+      });
     });
-  });
+  } catch(err){}
 
   const pageTransition = document.createElement('div');
   pageTransition.id = 'pageTransition';
   pageTransition.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#060608;opacity:0;pointer-events:none;transition:opacity 0.35s ease;';
   document.body.appendChild(pageTransition);
 
-  document.querySelectorAll('.btn').forEach(btn => {
-    btn.addEventListener('click', function(e){
-      const rect = this.getBoundingClientRect();
+  try {
+    document.querySelectorAll('.btn').forEach(btn => {
+      btn.addEventListener('click', function(e){
+        const rect = this.getBoundingClientRect();
 
-      const ripple = document.createElement('span');
-      const size = Math.max(rect.width, rect.height);
-      ripple.className = 'ripple';
-      ripple.style.width = ripple.style.height = size + 'px';
-      ripple.style.left = (e.clientX - rect.left - size/2) + 'px';
-      ripple.style.top = (e.clientY - rect.top - size/2) + 'px';
-      this.appendChild(ripple);
-      setTimeout(() => ripple.remove(), 650);
+        const ripple = document.createElement('span');
+        const size = Math.max(rect.width, rect.height);
+        ripple.className = 'ripple';
+        ripple.style.width = ripple.style.height = size + 'px';
+        ripple.style.left = (e.clientX - rect.left - size/2) + 'px';
+        ripple.style.top = (e.clientY - rect.top - size/2) + 'px';
+        this.appendChild(ripple);
+        setTimeout(() => ripple.remove(), 650);
 
-      if(!reducedMotion){
-        const originX = e.clientX, originY = e.clientY;
-        const particleCount = 8;
-        for(let i=0; i<particleCount; i++){
-          const p = document.createElement('span');
-          const angle = (Math.PI * 2 * i) / particleCount + Math.random()*0.4;
-          const dist = 24 + Math.random()*22;
-          p.style.cssText = `
-            position:fixed; left:${originX}px; top:${originY}px;
-            width:5px; height:5px; border-radius:50%;
-            background:var(--accent-soft);
-            pointer-events:none; z-index:9997;
-            transform:translate(-50%,-50%);
-            opacity:1;
-          `;
-          document.body.appendChild(p);
-          p.animate([
-            { transform:'translate(-50%,-50%) scale(1)', opacity:1 },
-            { transform:`translate(${Math.cos(angle)*dist - 2.5}px, ${Math.sin(angle)*dist - 2.5}px) scale(0)`, opacity:0 }
-          ], { duration:520, easing:'cubic-bezier(.2,.8,.3,1)' });
-          setTimeout(() => p.remove(), 540);
+        if(!reducedMotion){
+          const originX = e.clientX, originY = e.clientY;
+          const particleCount = 8;
+          for(let i=0; i<particleCount; i++){
+            const p = document.createElement('span');
+            const angle = (Math.PI * 2 * i) / particleCount + Math.random()*0.4;
+            const dist = 24 + Math.random()*22;
+            p.style.cssText = `
+              position:fixed; left:${originX}px; top:${originY}px;
+              width:5px; height:5px; border-radius:50%;
+              background:var(--accent-soft);
+              pointer-events:none; z-index:9997;
+              transform:translate(-50%,-50%);
+              opacity:1;
+            `;
+            document.body.appendChild(p);
+            p.animate([
+              { transform:'translate(-50%,-50%) scale(1)', opacity:1 },
+              { transform:`translate(${Math.cos(angle)*dist - 2.5}px, ${Math.sin(angle)*dist - 2.5}px) scale(0)`, opacity:0 }
+            ], { duration:520, easing:'cubic-bezier(.2,.8,.3,1)' });
+            setTimeout(() => p.remove(), 540);
+          }
         }
-      }
 
-      const href = this.getAttribute('href');
-      const isAnchor = href && href.startsWith('#');
-      const isExternal = this.target === '_blank';
-      if(href && !isAnchor && !isExternal && !reducedMotion){
-        e.preventDefault();
-        pageTransition.style.opacity = '1';
-        setTimeout(() => { window.location.href = href; }, 340);
-      }
-    });
-  });
-
-  if(isFinePointer && !reducedMotion){
-    document.body.classList.add('cursor-active');
-    const dot = document.getElementById('cursorDot');
-    const ring = document.getElementById('cursorRing');
-    let mx=0,my=0, rx=0, ry=0;
-    window.addEventListener('mousemove', (e)=>{
-      mx=e.clientX; my=e.clientY;
-      dot.style.transform = `translate(${mx}px, ${my}px) translate(-50%,-50%)`;
-    });
-    function animateRing(){
-      rx += (mx-rx)*0.18;
-      ry += (my-ry)*0.18;
-      ring.style.transform = `translate(${rx}px, ${ry}px) translate(-50%,-50%)`;
-      requestAnimationFrame(animateRing);
-    }
-    animateRing();
-    document.querySelectorAll('a, button, .btn, [data-tilt], .stack-item, .why-card, .connect-card, .process-item')
-      .forEach(el => {
-        el.addEventListener('mouseenter', ()=> ring.classList.add('hovering'));
-        el.addEventListener('mouseleave', ()=> ring.classList.remove('hovering'));
+        const href = this.getAttribute('href');
+        const isAnchor = href && href.startsWith('#');
+        const isExternal = this.target === '_blank';
+        if(href && !isAnchor && !isExternal && !reducedMotion){
+          e.preventDefault();
+          pageTransition.style.opacity = '1';
+          setTimeout(() => { window.location.href = href; }, 340);
+        }
       });
-  }
-
-  const floatCta = document.getElementById('floatCta');
-  const heroEl = document.getElementById('hero');
-  const ctaObserver = new IntersectionObserver((entries)=>{
-    entries.forEach(entry=>{
-      if(!entry.isIntersecting){ floatCta.classList.add('show'); }
-      else{ floatCta.classList.remove('show'); }
     });
-  }, { threshold: 0 });
-  ctaObserver.observe(heroEl);
+  } catch(err){}
+
+  try {
+    const isFinePointer2 = window.matchMedia('(pointer: fine)').matches;
+    if(isFinePointer2 && !reducedMotion){
+      document.body.classList.add('cursor-active');
+      const dot = document.getElementById('cursorDot');
+      const ring = document.getElementById('cursorRing');
+      let mx=0,my=0, rx=0, ry=0;
+      window.addEventListener('mousemove', (e)=>{
+        mx=e.clientX; my=e.clientY;
+        dot.style.transform = `translate(${mx}px, ${my}px) translate(-50%,-50%)`;
+      });
+      function animateRing(){
+        rx += (mx-rx)*0.18;
+        ry += (my-ry)*0.18;
+        ring.style.transform = `translate(${rx}px, ${ry}px) translate(-50%,-50%)`;
+        requestAnimationFrame(animateRing);
+      }
+      animateRing();
+      document.querySelectorAll('a, button, .btn, [data-tilt], .stack-item, .why-card, .connect-card, .process-item')
+        .forEach(el => {
+          el.addEventListener('mouseenter', ()=> ring.classList.add('hovering'));
+          el.addEventListener('mouseleave', ()=> ring.classList.remove('hovering'));
+        });
+    }
+  } catch(err){}
+
+  try {
+    const floatCta = document.getElementById('floatCta');
+    const heroEl = document.getElementById('hero');
+    const ctaObserver = new IntersectionObserver((entries)=>{
+      entries.forEach(entry=>{
+        if(!entry.isIntersecting){ floatCta.classList.add('show'); }
+        else{ floatCta.classList.remove('show'); }
+      });
+    }, { threshold: 0 });
+    ctaObserver.observe(heroEl);
+  } catch(err){}
 
   function splitIntoWords(el){
     const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
@@ -1505,246 +1551,248 @@
     });
   }
 
-  const splitTargets = document.querySelectorAll('.text-split');
-  if(!reducedMotion){
-    splitTargets.forEach(el => splitIntoWords(el));
-    const wordObserver = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if(entry.isIntersecting){
-          const words = entry.target.querySelectorAll('.word');
-          words.forEach((w, i) => {
-            w.style.transitionDelay = (i * 0.018) + 's';
-            requestAnimationFrame(() => w.classList.add('in'));
-          });
-          wordObserver.unobserve(entry.target);
-        }
-      });
-    }, { threshold: 0.2 });
-    splitTargets.forEach(el => wordObserver.observe(el));
-  } else {
-    splitTargets.forEach(el => el.style.opacity = '1');
-  }
-
-  if(!reducedMotion){
-    const meshEl = document.querySelector('.mesh');
-    let lastScrollY = 0, ticking = false;
-    window.addEventListener('scroll', () => {
-      lastScrollY = window.scrollY;
-      if(!ticking){
-        requestAnimationFrame(() => {
-          meshEl.style.transform = `translateY(${lastScrollY * 0.08}px)`;
-          ticking = false;
+  try {
+    const splitTargets = document.querySelectorAll('.text-split');
+    if(!reducedMotion){
+      splitTargets.forEach(el => splitIntoWords(el));
+      const wordObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if(entry.isIntersecting){
+            const words = entry.target.querySelectorAll('.word');
+            words.forEach((w, i) => {
+              w.style.transitionDelay = (i * 0.018) + 's';
+              requestAnimationFrame(() => w.classList.add('in'));
+            });
+            wordObserver.unobserve(entry.target);
+          }
         });
-        ticking = true;
-      }
-    }, { passive:true });
-  }
+      }, { threshold: 0.2 });
+      splitTargets.forEach(el => wordObserver.observe(el));
+    } else {
+      splitTargets.forEach(el => el.style.opacity = '1');
+    }
+  } catch(err){}
 
-  document.querySelectorAll('.stack-item, .why-card, .connect-card, .badge, .process-num, .stat-num').forEach((el, i) => {
-    el.style.setProperty('--i', i);
-  });
+  try {
+    if(!reducedMotion){
+      const meshEl = document.querySelector('.mesh');
+      let lastScrollY = 0, ticking = false;
+      window.addEventListener('scroll', () => {
+        lastScrollY = window.scrollY;
+        if(!ticking){
+          requestAnimationFrame(() => {
+            meshEl.style.transform = `translateY(${lastScrollY * 0.08}px)`;
+            ticking = false;
+          });
+          ticking = true;
+        }
+      }, { passive:true });
+    }
+  } catch(err){}
+
+  try {
+    document.querySelectorAll('.stack-item, .why-card, .connect-card, .badge, .process-num, .stat-num').forEach((el, i) => {
+      el.style.setProperty('--i', i);
+    });
+  } catch(err){}
 
   (function initMap(){
-    const mapEl = document.getElementById('realMap');
-    if(!mapEl || typeof L === 'undefined') return;
+    try {
+      const mapEl = document.getElementById('realMap');
+      if(!mapEl || typeof L === 'undefined') return;
 
-    const coords = [-23.4205, -51.9331];
-    let mapInstance = null;
+      const coords = [-23.4205, -51.9331];
+      let mapInstance = null;
 
-    const mapObserver = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if(entry.isIntersecting){
-          mapObserver.unobserve(entry.target);
+      const mapObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if(entry.isIntersecting){
+            mapObserver.unobserve(entry.target);
+            try {
+              const map = L.map('realMap', {
+                center: coords,
+                zoom: 12,
+                scrollWheelZoom: false,
+                zoomControl: true,
+                attributionControl: true
+              });
+              mapInstance = map;
 
-          const map = L.map('realMap', {
-            center: coords,
-            zoom: 12,
-            scrollWheelZoom: false,
-            zoomControl: true,
-            attributionControl: true
-          });
-          mapInstance = map;
+              L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; OpenStreetMap &copy; CARTO',
+                maxZoom: 19,
+                subdomains: 'abcd'
+              }).addTo(map);
 
-          L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; OpenStreetMap &copy; CARTO',
-            maxZoom: 19,
-            subdomains: 'abcd'
-          }).addTo(map);
+              const customIcon = L.divIcon({
+                className: 'custom-marker-wrap',
+                html: '<div class="custom-marker"><span class="marker-ping"></span><span class="marker-dot"></span></div>',
+                iconSize: [36, 36],
+                iconAnchor: [18, 30]
+              });
 
-          const customIcon = L.divIcon({
-            className: 'custom-marker-wrap',
-            html: '<div class="custom-marker"><span class="marker-ping"></span><span class="marker-dot"></span></div>',
-            iconSize: [36, 36],
-            iconAnchor: [18, 30]
-          });
+              const marker = L.marker(coords, { icon: customIcon }).addTo(map);
+              marker.bindPopup('<div class="map-popup"><strong>INCONNU BOY · Dawens</strong><span>Maringá, Paraná — Brazil</span></div>');
 
-          const marker = L.marker(coords, { icon: customIcon }).addTo(map);
-          marker.bindPopup('<div class="map-popup"><strong>INCONNU BOY · Dawens</strong><span>Maringá, Paraná — Brazil</span></div>');
+              mapEl.addEventListener('click', () => map.scrollWheelZoom.enable(), { once:true });
+              mapEl.addEventListener('mouseenter', () => map.scrollWheelZoom.enable());
+              mapEl.addEventListener('mouseleave', () => map.scrollWheelZoom.disable());
 
-          mapEl.addEventListener('click', () => map.scrollWheelZoom.enable(), { once:true });
-          mapEl.addEventListener('mouseenter', () => map.scrollWheelZoom.enable());
-          mapEl.addEventListener('mouseleave', () => map.scrollWheelZoom.disable());
+              setTimeout(() => {
+                map.invalidateSize();
+                marker.openPopup();
+              }, 450);
+            } catch(err){}
+          }
+        });
+      }, { threshold: 0.2 });
 
-          setTimeout(() => {
-            map.invalidateSize();
-            marker.openPopup();
-          }, 450);
-        }
+      mapObserver.observe(mapEl);
+
+      window.addEventListener('themechange', () => {
+        if(mapInstance){ setTimeout(() => mapInstance.invalidateSize(), 300); }
       });
-    }, { threshold: 0.2 });
-
-    mapObserver.observe(mapEl);
-
-    window.addEventListener('themechange', () => {
-      if(mapInstance){ setTimeout(() => mapInstance.invalidateSize(), 300); }
-    });
+    } catch(err){}
   })();
 
   (function initStatusWidget(){
-    const widget = document.getElementById('statusWidget');
-    const timeEl = document.getElementById('swTime');
-    const dateEl = document.getElementById('swDate');
-    const battWrap = document.getElementById('swBattWrap');
-    const battSep = document.getElementById('swBattSep');
-    const battFill = document.getElementById('swBattFill');
-    const battPct = document.getElementById('swBattPct');
+    try {
+      const widget = document.getElementById('statusWidget');
+      const timeEl = document.getElementById('swTime');
+      const dateEl = document.getElementById('swDate');
+      const battWrap = document.getElementById('swBattWrap');
+      const battSep = document.getElementById('swBattSep');
+      const battFill = document.getElementById('swBattFill');
+      const battPct = document.getElementById('swBattPct');
 
-    function updateClock(){
-      const now = new Date();
-      timeEl.textContent = now.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
-      dateEl.textContent = now.toLocaleDateString([], { weekday:'short', day:'numeric', month:'short' });
-    }
-    updateClock();
-    setInterval(updateClock, 1000 * 30);
-
-    function setupBattery(battery){
-      function render(){
-        const pct = Math.round(battery.level * 100);
-        battFill.style.width = pct + '%';
-        battPct.textContent = pct + '%';
-        battFill.style.background = pct <= 20 && !battery.charging ? '#FF5C5C' : 'var(--accent-soft)';
+      function updateClock(){
+        const now = new Date();
+        timeEl.textContent = now.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+        dateEl.textContent = now.toLocaleDateString([], { weekday:'short', day:'numeric', month:'short' });
       }
-      render();
-      battWrap.style.display = 'flex';
-      battSep.style.display = 'block';
-      battery.addEventListener('levelchange', render);
-      battery.addEventListener('chargingchange', render);
-    }
+      updateClock();
+      setInterval(updateClock, 1000 * 30);
 
-    if('getBattery' in navigator){
-      navigator.getBattery().then(setupBattery).catch(()=>{});
-    }
+      function setupBattery(battery){
+        function render(){
+          const pct = Math.round(battery.level * 100);
+          battFill.style.width = pct + '%';
+          battPct.textContent = pct + '%';
+          battFill.style.background = pct <= 20 && !battery.charging ? '#FF5C5C' : 'var(--accent-soft)';
+        }
+        render();
+        battWrap.style.display = 'flex';
+        battSep.style.display = 'block';
+        battery.addEventListener('levelchange', render);
+        battery.addEventListener('chargingchange', render);
+      }
 
-    let shown = false;
-    function revealWidget(){
-      if(shown) return;
-      shown = true;
-      widget.classList.add('show');
-    }
-    document.addEventListener('click', revealWidget, { once:true });
-    document.addEventListener('touchstart', revealWidget, { once:true, passive:true });
+      if('getBattery' in navigator){
+        navigator.getBattery().then(setupBattery).catch(()=>{});
+      }
+
+      let shown = false;
+      function revealWidget(){
+        if(shown) return;
+        shown = true;
+        widget.classList.add('show');
+      }
+      document.addEventListener('click', revealWidget, { once:true });
+      document.addEventListener('touchstart', revealWidget, { once:true, passive:true });
+    } catch(err){}
   })();
 
-  /* ===================== AUTOMATIC COLOR THEME SYSTEM =====================
-     Cycles through curated accent palettes automatically over time, and
-     respects the visitor's system light/dark preference automatically.
-     A manual override via the nav button pauses the auto-cycle and is
-     remembered for next visit.
-  =========================================================================== */
+  /* ===================== AUTOMATIC COLOR THEME SYSTEM ===================== */
   (function themeSystem(){
-    const root = document.documentElement;
-    const palettes = ['azure', 'emerald', 'amber', 'rose', 'violet'];
-    const CYCLE_MS = 20000;
-    let cycleIndex = 0;
-    let autoCycle = true;
+    try {
+      const root = document.documentElement;
+      const palettes = ['azure', 'emerald', 'amber', 'rose', 'violet'];
+      const CYCLE_MS = 20000;
+      let cycleIndex = 0;
+      let autoCycle = true;
 
-    const savedTheme = localStorage.getItem('ib_theme');
-    const savedMode = localStorage.getItem('ib_mode');
-    const savedManual = localStorage.getItem('ib_manual') === '1';
+      const savedTheme = localStorage.getItem('ib_theme');
+      const savedMode = localStorage.getItem('ib_mode');
+      const savedManual = localStorage.getItem('ib_manual') === '1';
 
-    function applyTheme(name){
-      root.setAttribute('data-theme', name);
-      document.querySelectorAll('.theme-swatch').forEach(s => s.classList.toggle('active', s.dataset.t === name));
-      window.dispatchEvent(new CustomEvent('themechange'));
-    }
-
-    function applyMode(mode){
-      root.setAttribute('data-mode', mode);
-      const modeBtn = document.getElementById('modeToggle');
-      if(modeBtn) modeBtn.textContent = mode === 'light' ? '◑' : '◐';
-      window.dispatchEvent(new CustomEvent('themechange'));
-    }
-
-    if(savedManual && savedTheme){
-      cycleIndex = Math.max(0, palettes.indexOf(savedTheme));
-      applyTheme(savedTheme);
-      autoCycle = false;
-    } else {
-      applyTheme(palettes[cycleIndex]);
-    }
-
-    const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
-    if(savedMode){
-      applyMode(savedMode);
-    } else {
-      applyMode(systemDark.matches ? 'dark' : 'light');
-    }
-    systemDark.addEventListener('change', (e) => {
-      if(!localStorage.getItem('ib_mode')){
-        applyMode(e.matches ? 'dark' : 'light');
+      function applyTheme(name){
+        root.setAttribute('data-theme', name);
+        document.querySelectorAll('.theme-swatch').forEach(s => s.classList.toggle('active', s.dataset.t === name));
+        window.dispatchEvent(new CustomEvent('themechange'));
       }
-    });
 
-    setInterval(() => {
-      if(!autoCycle) return;
-      cycleIndex = (cycleIndex + 1) % palettes.length;
-      applyTheme(palettes[cycleIndex]);
-    }, CYCLE_MS);
+      function applyMode(mode){
+        root.setAttribute('data-mode', mode);
+        const modeBtn = document.getElementById('modeToggle');
+        if(modeBtn) modeBtn.textContent = mode === 'light' ? '◑' : '◐';
+        window.dispatchEvent(new CustomEvent('themechange'));
+      }
 
-    const toggle = document.getElementById('themeToggle');
-    const menu = document.getElementById('themeMenu');
-    toggle.addEventListener('click', (e) => {
-      e.preventDefault();
-      const open = menu.classList.toggle('open');
-      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-    });
-    document.addEventListener('click', (e) => {
-      if(!toggle.contains(e.target)){ menu.classList.remove('open'); toggle.setAttribute('aria-expanded','false'); }
-    });
-
-    document.querySelectorAll('.theme-swatch').forEach(sw => {
-      sw.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const t = sw.dataset.t;
+      if(savedManual && savedTheme){
+        cycleIndex = Math.max(0, palettes.indexOf(savedTheme));
+        applyTheme(savedTheme);
         autoCycle = false;
-        cycleIndex = palettes.indexOf(t);
-        applyTheme(t);
-        localStorage.setItem('ib_theme', t);
-        localStorage.setItem('ib_manual', '1');
-      });
-    });
+      } else {
+        applyTheme(palettes[cycleIndex]);
+      }
 
-    document.getElementById('modeToggle').addEventListener('click', (e) => {
-      e.stopPropagation();
-      const current = root.getAttribute('data-mode');
-      const next = current === 'light' ? 'dark' : 'light';
-      applyMode(next);
-      localStorage.setItem('ib_mode', next);
-    });
+      const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+      if(savedMode){
+        applyMode(savedMode);
+      } else {
+        applyMode(systemDark.matches ? 'dark' : 'light');
+      }
+      systemDark.addEventListener('change', (e) => {
+        if(!localStorage.getItem('ib_mode')){
+          applyMode(e.matches ? 'dark' : 'light');
+        }
+      });
+
+      setInterval(() => {
+        if(!autoCycle) return;
+        cycleIndex = (cycleIndex + 1) % palettes.length;
+        applyTheme(palettes[cycleIndex]);
+      }, CYCLE_MS);
+
+      const toggle = document.getElementById('themeToggle');
+      const menu = document.getElementById('themeMenu');
+      toggle.addEventListener('click', (e) => {
+        e.preventDefault();
+        const open = menu.classList.toggle('open');
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+      document.addEventListener('click', (e) => {
+        if(!toggle.contains(e.target)){ menu.classList.remove('open'); toggle.setAttribute('aria-expanded','false'); }
+      });
+
+      document.querySelectorAll('.theme-swatch').forEach(sw => {
+        sw.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const t = sw.dataset.t;
+          autoCycle = false;
+          cycleIndex = palettes.indexOf(t);
+          applyTheme(t);
+          localStorage.setItem('ib_theme', t);
+          localStorage.setItem('ib_manual', '1');
+        });
+      });
+
+      document.getElementById('modeToggle').addEventListener('click', (e) => {
+        e.stopPropagation();
+        const current = root.getAttribute('data-mode');
+        const next = current === 'light' ? 'dark' : 'light';
+        applyMode(next);
+        localStorage.setItem('ib_mode', next);
+      });
+    } catch(err){}
   })();
 
-  /* ===================== AUTO-DETECT VISITOR LANGUAGE & TRANSLATE =====================
-     The site's content stays in English. If the visitor's browser/device
-     language is not English, Google Translate is loaded silently and the
-     page is switched to their detected language automatically.
-  =========================================================================== */
+  /* ===================== AUTO-DETECT VISITOR LANGUAGE & TRANSLATE ===================== */
   (function autoTranslate(){
     try{
       const browserLang = (navigator.language || navigator.userLanguage || 'en').slice(0,2).toLowerCase();
       if(browserLang === 'en') return;
 
-      // Keep Google's injected banner/iframe/body-shift permanently neutralized,
-      // no matter when it tries to inject itself.
       function scrubGoogleUI(){
         document.body.style.top = '0px';
         document.body.classList.remove('translated-ltr', 'translated-rtl');
@@ -1757,34 +1805,37 @@
       new MutationObserver(scrubGoogleUI).observe(document.body, { attributes:true, attributeFilter:['style','class'] });
 
       window.googleTranslateElementInit = function(){
-        new google.translate.TranslateElement({
-          pageLanguage: 'en',
-          includedLanguages: '',
-          autoDisplay: false
-        }, 'google_translate_element');
+        try {
+          new google.translate.TranslateElement({
+            pageLanguage: 'en',
+            includedLanguages: '',
+            autoDisplay: false
+          }, 'google_translate_element');
 
-        const trySwitch = setInterval(() => {
-          const select = document.querySelector('#google_translate_element select.goog-te-combo');
-          if(select){
-            clearInterval(trySwitch);
-            const langMap = { 'pt':'pt', 'es':'es', 'fr':'fr', 'de':'de', 'it':'it', 'nl':'nl', 'ru':'ru', 'ar':'ar', 'zh':'zh-CN', 'ja':'ja', 'ko':'ko' };
-            const target = langMap[browserLang] || browserLang;
-            const optionExists = Array.from(select.options).some(o => o.value === target);
-            if(optionExists){
-              select.value = target;
-              select.dispatchEvent(new Event('change'));
+          const trySwitch = setInterval(() => {
+            const select = document.querySelector('#google_translate_element select.goog-te-combo');
+            if(select){
+              clearInterval(trySwitch);
+              const langMap = { 'pt':'pt', 'es':'es', 'fr':'fr', 'de':'de', 'it':'it', 'nl':'nl', 'ru':'ru', 'ar':'ar', 'zh':'zh-CN', 'ja':'ja', 'ko':'ko' };
+              const target = langMap[browserLang] || browserLang;
+              const optionExists = Array.from(select.options).some(o => o.value === target);
+              if(optionExists){
+                select.value = target;
+                select.dispatchEvent(new Event('change'));
+              }
+              scrubGoogleUI();
             }
-            scrubGoogleUI();
-          }
-        }, 250);
-        setTimeout(() => clearInterval(trySwitch), 8000);
+          }, 250);
+          setTimeout(() => clearInterval(trySwitch), 8000);
+        } catch(err){}
       };
 
       const gtScript = document.createElement('script');
       gtScript.src = 'https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit';
       gtScript.async = true;
+      gtScript.onerror = function(){ /* fail silently, page already unlocked regardless */ };
       document.body.appendChild(gtScript);
-    }catch(err){ /* fail silently, site stays in English */ }
+    }catch(err){ /* fail silently, site stays in English, page already unlocked regardless */ }
   })();
 </script>
 

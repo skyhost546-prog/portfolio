@@ -891,11 +891,9 @@
 </head>
 <body class="locked">
 
-<!-- ===================== INDEPENDENT FAILSAFE UNLOCK =====================
-     Runs immediately, has zero dependencies on anything below it.
-     Guarantees the page is never permanently stuck on the welcome screen,
-     even if Leaflet, Google Fonts, or any other external script fails
-     to load or throws an error. -->
+<!-- ===================== SCRIPT DE DÉVERROUILLAGE ROBUSTE =====================
+     Remplacé par une version qui s'exécute dès que le DOM est prêt,
+     avec un délai court (800 ms) et un filet de sécurité à 2,5 s. -->
 <script>
   (function(){
     var unlocked = false;
@@ -915,9 +913,19 @@
       var hero = document.getElementById('hero');
       if(hero) hero.classList.add('hero-anim');
     }
-    // Hard failsafe: no matter what happens elsewhere on the page,
-    // unlock after 3.5s at the very latest.
-    setTimeout(forceUnlock, 3500);
+
+    if(document.readyState === 'loading'){
+      document.addEventListener('DOMContentLoaded', function(){
+        setTimeout(forceUnlock, 800);
+      });
+    } else {
+      setTimeout(forceUnlock, 800);
+    }
+
+    // Sécurité : au pire, dans 2,5 secondes maximum
+    setTimeout(forceUnlock, 2500);
+
+    // Expose la fonction pour un éventuel appel manuel
     window.__forceUnlock = forceUnlock;
   })();
 </script>
